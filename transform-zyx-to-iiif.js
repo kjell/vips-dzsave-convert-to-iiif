@@ -46,10 +46,10 @@ module.exports = {
   getMaxZoom,
 }
 
-// If this is being run directly and not `require()`d,
-// do some cool stuff
 if (!module.parent) {
+  // If this is being run directly and not `require()`d…
   const fs = require('fs-extra')
+  const sharp = require('sharp')
 
   function getNumericDirs(src) {
     return fs
@@ -58,32 +58,56 @@ if (!module.parent) {
       .sort((a, b) => a.replace('.jpg', '') - b.replace('.jpg', ''))
   }
 
-  // TODO don't hardcode these?
-  const src = '111219'
-  const imageSize = { x: 25616, y: 12341 }
+  const src = process.argv[2]
+
   /* TODO
-   * should this generate an info.json?
-   * start with a source image file and manage the `dzsave` and conversion to iiif?
+   * generate `info.json`
+   * how to get image dimensions for an existing directory of tiles?
+   * what to do when created files exist already: error?
+   * split this into smaller files
    */
 
-  const zooms = getNumericDirs(src)
+  function convertZyxTilesToIIIF(dir) {
+    const imageSize = { x: 25616, y: 12341 } // TODO dont hardcode
+    const zooms = getNumericDirs(dir)
 
-  zooms.map((z, zoomIndex) => {
-    getNumericDirs(`./${src}/${z}`).map(y => {
-      getNumericDirs(`./${src}/${z}/${y}`).map(xFile => {
-        const [x, ext] = xFile.split('.')
-        const iiif = zyxToIIIF(z, y, x, imageSize)
-        const _src = `${src}/${z}/${y}/${x}.jpg`
-        const dest = `${src}-iiif${iiif}`
+    zooms.map((z, zoomIndex) => {
+      getNumericDirs(`./${dir}/${z}`).map(y => {
+        getNumericDirs(`./${dir}/${z}/${y}`).map(xFile => {
+          const [x, ext] = xFile.split('.')
+          const iiif = zyxToIIIF(z, y, x, imageSize)
+          const _src = `${dir}/${z}/${y}/${x}.jpg`
+          const dest = `${dir}-iiif${iiif}`
 
-        fs.ensureDir(dest.replace('/default.jpg', ''), err => {
-          err
-            ? console.error(err)
-            : fs.copy(_src, dest, err => {
-                err ? console.error(err) : console.info('.')
-              })
+          fs.ensureDir(dest.replace('/default.jpg', ''), err => {
+            err
+              ? console.error(err)
+              : fs.copy(_src, dest, err => {
+                  err ? console.error(err) : console.info('.')
+                })
+          })
         })
       })
     })
-  })
+  }
+
+  function tileImageAndConvert(src) {
+    const output = 'out'
+    const image = sharp(src)
+    const metadata = image
+      .metadata()
+      .then(meta => {
+        const imageSize = { x: meta.width, y: meta.height }
+        image
+          .limitInputPixels(false)
+          .tile({ layout: 'google', size: 512 })
+          .toFile(output, (err, info) => {
+            console.info('tiled', { err, info })
+            convertZyxTilesToIIIF(output)
+          })
+      })
+      .catch(err => console.error(err))
+  }
+
+  src.match(/.jpg/) ? tileImageAndConvert(src) : convertZyxTilesToIIIF(src)
 }
